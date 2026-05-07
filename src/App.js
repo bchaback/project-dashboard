@@ -1,5 +1,13 @@
+import { db } from "./firebase";
+import {
+  collection,
+  addDoc,
+  updateDoc,
+  doc,
+  onSnapshot
+} from "firebase/firestore";
+import { collection, addDoc, getDocs, updateDoc, doc } from "firebase/firestore";
 import React, { useState, useEffect } from "react";
-
 const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 export default function App() {
@@ -14,70 +22,74 @@ export default function App() {
   });
 
   // ✅ Load from localStorage
-  useEffect(() => {
-    const saved = localStorage.getItem("ai_dash");
-    if (saved) setProjects(JSON.parse(saved));
-  }, []);
+useEffect(() => {
+  const unsubscribe = onSnapshot(collection(db, "projects"), (snapshot) => {
+    const updatedProjects = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }));
+
+    setProjects(updatedProjects);
+  });
+
+  return () => unsubscribe();
+}, []);
+``
 
   // ✅ Save to localStorage
   useEffect(() => {
     localStorage.setItem("ai_dash", JSON.stringify(projects));
   }, [projects]);
 
-  const addProject = () => {
-    if (!projectName) return;
-    setProjects([
-      ...projects,
-      { id: Date.now(), name: projectName, tasks: [] }
-    ]);
-    setProjectName("");
-  };
+  const addProject = async () => {
+  if (!projectName) return;
 
-  const addTask = () => {
-    if (!task.name || !task.projectId) return;
+  const docRef = await addDoc(collection(db, "projects"), {
+    name: projectName,
+    tasks: []
+  });
 
-    setProjects(
-      projects.map((p) =>
-        p.id === Number(task.projectId)
-          ? {
-              ...p,
-              tasks: [
-                ...p.tasks,
-                {
-                  ...task,
-                  id: Date.now(),
-                  done: false,
-                  hours: Number(task.hours || 0)
-                }
-              ]
-            }
-          : p
-      )
-    );
+  setProjects([...projects, { id: docRef.id, name: projectName, tasks: [] }]);
+  setProjectName("");
+};
 
-    setTask({
-      projectId: "",
-      name: "",
-      priority: "Medium",
-      day: "",
-      hours: ""
-    });
-  };
+  const addTask = async () => {
+  if (!task.name || !task.projectId) return;
 
-  const toggleTask = (pid, tid) => {
-    setProjects(
-      projects.map((p) =>
-        p.id === pid
-          ? {
-              ...p,
-              tasks: p.tasks.map((t) =>
-                t.id === tid ? { ...t, done: !t.done } : t
-              )
-            }
-          : p
-      )
-    );
-  };
+  const projRef = doc(db, "projects", String(task.projectId));
+  const proj = projects.find(p => p.id == task.projectId);
+
+  const updatedTasks = [
+    ...proj.tasks,
+    { ...task, id: Date.now(), done: false, hours: Number(task.hours || 0) }
+  ];
+
+  await updateDoc(projRef, {
+    tasks: updatedTasks
+  });
+
+  setProjects(projects.map(p =>
+    p.id == task.projectId ? { ...p, tasks: updatedTasks } : p
+  ));
+
+  setTask({ projectId:"", name:"", priority:"Medium", day:"", hours:"" });
+};
+
+const toggleTask = async (pid, tid) => {
+  const proj = projects.find(p => p.id === pid);
+
+  const updatedTasks = proj.tasks.map(t =>
+    t.id === tid ? { ...t, done: !t.done } : t
+  );
+
+  await updateDoc(doc(db, "projects", String(pid)), {
+    tasks: updatedTasks
+  });
+
+  setProjects(projects.map(p =>
+    p.id === pid ? { ...p, tasks: updatedTasks } : p
+  ));
+};
 
   // ✅ AI: Suggest best day
   const suggestDay = () => {
